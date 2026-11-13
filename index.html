@@ -58,9 +58,6 @@
       <div class="seg" id="mode"><button data-m="MARKET" class="on">MARKET</button><button data-m="LIMIT">LIMIT ± buffer</button></div>
       <input id="buf" type="number" step="0.1" min="0" value="1" style="max-width:90px;display:none" title="Buffer %">
     </div>
-    <h2 style="margin-top:12px">Session</h2>
-    <div class="seg" id="var"><button data-v="AUTO" class="on">Auto</button><button data-v="regular">Regular</button><button data-v="amo">AMO</button></div>
-    <small id="varNote"></small><br>
     <small>Switch to LIMIT if Kite rejects MARKET orders from the basket. Buys go at ref price + buffer %, sells at ref price − buffer %, rounded to a valid tick.</small>
   </div>
 
@@ -96,25 +93,11 @@
     get: function (k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } },
     set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
   };
-  var mode = "MARKET", vsel = "AUTO", groups = {}, pending = null;
+  var mode = "MARKET", groups = {}, pending = null;
   function istOpen() {
     var d = new Date(Date.now() + (330 + new Date().getTimezoneOffset()) * 60000), m = d.getHours() * 60 + d.getMinutes(), w = d.getDay();
     return w > 0 && w < 6 && m >= 555 && m < 930;
   }
-  function variety() { return vsel === "AUTO" ? (istOpen() ? "regular" : "amo") : vsel; }
-  function varNote() {
-    var v = variety();
-    $("varNote").textContent = v === "amo" ? "After-market order (AMO): queued now, executes when the market opens. Holidays aren't checked." :
-      "Regular order: executes now (market hours are 9:15 AM to 3:30 PM IST).";
-  }
-  document.querySelectorAll("#var button").forEach(function (b) {
-    b.addEventListener("click", function () {
-      vsel = b.getAttribute("data-v");
-      document.querySelectorAll("#var button").forEach(function (x) { x.classList.toggle("on", x === b); });
-      varNote();
-    });
-  });
-  varNote(); setInterval(varNote, 60000);
   var LABEL = { INITIAL: "Month-1 buy", SELL: "Step 1 – Sell exits", BUY: "Step 2 – Buy replacements" };
 
   $("key").value = store.get("kite_api_key");
@@ -231,7 +214,7 @@
     var buf = parseFloat($("buf").value) || 0, tot = 0, body = "";
     pending = { g: g, orders: groups[g].map(function (o) {
       var side = o.side === "SELL" ? "SELL" : "BUY";
-      var x = { variety: variety(), exchange: "NSE", tradingsymbol: o.symbol, transaction_type: side, order_type: mode,
+      var x = { variety: "regular", exchange: "NSE", tradingsymbol: o.symbol, transaction_type: side, order_type: mode,
                 product: "CNC", validity: "DAY", quantity: o.qty, readonly: false };
       if (mode === "LIMIT") x.price = roundTick(o.ref * (side === "BUY" ? 1 + buf / 100 : 1 - buf / 100), side);
       return { x: x, ref: o.ref };
@@ -243,9 +226,9 @@
     });
     $("mTitle").textContent = LABEL[g] + " – confirm";
     $("mBody").innerHTML = body;
-    $("mCnt").textContent = pending.orders.length + " orders, " + mode + ", CNC, NSE, " + (variety() === "amo" ? "AMO" : "regular");
+    $("mCnt").textContent = pending.orders.length + " orders, " + mode + ", CNC, NSE";
     $("mTot").textContent = "≈ ₹" + Math.round(tot).toLocaleString("en-IN");
-    $("mNote").textContent = "Prices are from the scanner sheet, so live prices will differ. Kite opens next: log in, check the basket, then tap Place.";
+    $("mNote").textContent = (istOpen() ? "" : "Market is closed now (open 9:15 AM to 3:30 PM IST, weekdays), so Kite will reject these orders. ") + "Prices are from the scanner sheet, so live prices will differ. Kite opens next: log in, check the basket, then tap Place.";
     $("modal").classList.add("show");
   }
   $("mCancel").addEventListener("click", function () { $("modal").classList.remove("show"); pending = null; });
