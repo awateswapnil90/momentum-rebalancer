@@ -3,77 +3,89 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Momentum Rebalancer – Send to Kite</title>
+<title>Momentum Rebalancer – Kite</title>
 <style>
   :root { --bg:#f6f7f9; --card:#fff; --ink:#1b1f24; --mute:#66707a; --line:#e2e5e9; --buy:#0a7d3b; --sell:#c0262d; --acc:#387ed1; }
-  * { box-sizing: border-box; }
+  * { box-sizing:border-box; }
   body { margin:0; font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif; background:var(--bg); color:var(--ink); }
   main { max-width:760px; margin:0 auto; padding:16px; }
-  h1 { font-size:20px; margin:8px 0 4px; }
-  p.sub { color:var(--mute); margin:0 0 16px; font-size:13px; }
+  h1 { font-size:20px; margin:8px 0 2px; }
+  h2 { font-size:16px; margin:0 0 8px; }
+  p.sub, small { color:var(--mute); font-size:13px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:14px; }
-  label { display:block; font-weight:600; font-size:13px; margin-bottom:6px; }
+  label { display:block; font-weight:600; font-size:13px; margin:8px 0 4px; }
   input[type=text], input[type=number], textarea { width:100%; padding:10px; border:1px solid var(--line); border-radius:8px; font:inherit; }
-  textarea { min-height:130px; font:12px/1.4 ui-monospace,Menlo,Consolas,monospace; }
+  textarea { min-height:110px; font:12px/1.4 ui-monospace,Menlo,Consolas,monospace; }
   .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-  .row > * { flex:1 1 auto; }
-  .seg { display:flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .seg { display:flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; flex:1; }
   .seg button { flex:1; border:0; background:#fff; padding:9px; font:inherit; cursor:pointer; }
   .seg button.on { background:var(--acc); color:#fff; }
-  button.go { width:100%; padding:13px; border:0; border-radius:8px; background:var(--acc); color:#fff; font:600 16px system-ui,sans-serif; cursor:pointer; }
-  button.go:disabled { background:#9db7d8; cursor:not-allowed; }
-  table { width:100%; border-collapse:collapse; font-size:13px; }
+  button.go, button.alt { width:100%; padding:12px; border:0; border-radius:8px; font:600 15px system-ui,sans-serif; cursor:pointer; }
+  button.go { background:var(--acc); color:#fff; } button.go:disabled { background:#9db7d8; cursor:not-allowed; }
+  button.alt { background:#eef2f7; color:var(--ink); }
+  table { width:100%; border-collapse:collapse; font-size:13px; margin:6px 0 10px; }
   th, td { padding:6px 4px; border-bottom:1px solid var(--line); text-align:right; }
-  th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align:left; }
+  th:nth-child(-n+2), td:nth-child(-n+2) { text-align:left; }
   .BUY { color:var(--buy); font-weight:600; } .SELL { color:var(--sell); font-weight:600; }
   .msg { font-size:13px; margin-top:8px; } .err { color:var(--sell); } .ok { color:var(--buy); }
-  small { color:var(--mute); }
+  .badge { display:inline-block; font-size:12px; padding:2px 8px; border-radius:99px; background:#eef2f7; margin-left:6px; }
+  .next { border:2px solid var(--acc); }
+  details summary { cursor:pointer; font-weight:600; }
+  .modal { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:flex-end; justify-content:center; z-index:9; }
+  .modal.show { display:flex; }
+  .sheet { background:#fff; width:100%; max-width:760px; max-height:90vh; overflow:auto; border-radius:14px 14px 0 0; padding:16px; }
 </style>
 </head>
 <body>
 <main>
   <h1>Momentum Rebalancer → Kite</h1>
-  <p class="sub">Paste an order JSON from the Google Sheet's <b>Orders</b> tab and send it to a Kite basket. Nothing is placed until you confirm in Kite.</p>
+  <p class="sub">Reads this month's orders from your Google Sheet, shows them, and sends them to a Kite basket when you press OK. Kite still asks you to log in and place the orders.</p>
+
+  <div id="status" class="card" style="display:none"></div>
+
+  <div id="groups"></div>
 
   <div class="card">
+    <div class="row">
+      <button class="alt" id="reload" style="flex:1">↻ Reload from sheet</button>
+    </div>
+    <small id="loaded"></small>
+  </div>
+
+  <div class="card">
+    <h2>Order type</h2>
+    <div class="row">
+      <div class="seg" id="mode"><button data-m="MARKET" class="on">MARKET</button><button data-m="LIMIT">LIMIT ± buffer</button></div>
+      <input id="buf" type="number" step="0.1" min="0" value="1" style="max-width:90px;display:none" title="Buffer %">
+    </div>
+    <small>Switch to LIMIT if Kite rejects MARKET orders from the basket. Buys go at ref price + buffer %, sells at ref price − buffer %, rounded to a valid tick.</small>
+  </div>
+
+  <details class="card" id="setup">
+    <summary>Setup (one time)</summary>
     <label for="key">Kite Publisher API key</label>
     <input id="key" type="text" placeholder="API key (never the API secret)" autocomplete="off">
-    <small>Stored only in this browser. Never paste your API secret here.</small>
-  </div>
-
-  <div class="card">
-    <label for="json">Order JSON</label>
-    <textarea id="json" placeholder='[{"variety":"regular","exchange":"NSE","tradingsymbol":"INFY",...}]'></textarea>
-    <div id="parseMsg" class="msg"></div>
-  </div>
-
-  <div class="card">
-    <label>Order type</label>
-    <div class="row">
-      <div class="seg" id="mode">
-        <button data-m="MARKET" class="on">MARKET</button>
-        <button data-m="LIMIT">LIMIT (ref price ± buffer)</button>
-      </div>
-      <div id="bufWrap" style="display:none; max-width:160px">
-        <input id="buf" type="number" step="0.1" min="0" value="1" title="Buffer %">
-      </div>
-    </div>
-    <small>Use LIMIT if Kite rejects MARKET orders from the basket. Buys go at ref price + buffer, sells at ref price − buffer, rounded to a valid tick. Ref price is the scanner LCP, so check it before you confirm.</small>
-  </div>
-
-  <div class="card">
-    <table id="tbl"><thead><tr><th>#</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th><th>Value ₹</th></tr></thead><tbody></tbody>
-      <tfoot><tr><td></td><td colspan="4" style="text-align:left"><b id="cnt"></b></td><td><b id="tot"></b></td></tr></tfoot></table>
-  </div>
-
-  <button class="go" id="send" disabled>Send to Kite basket</button>
-  <div id="sendMsg" class="msg"></div>
-
-  <form method="post" id="basket-form" action="https://kite.zerodha.com/connect/basket" style="display:none">
-    <input type="hidden" name="api_key" id="f_key" value="">
-    <input type="hidden" name="data" id="f_data" value="">
-  </form>
+    <label for="url">Published CSV link of the sheet's "Feed" tab</label>
+    <input id="url" type="text" placeholder="https://docs.google.com/spreadsheets/d/e/.../pub?gid=...&single=true&output=csv" autocomplete="off">
+    <small>Both are stored only in this browser. To get the link: Sheet → File → Share → Publish to web → choose <b>Feed</b> and <b>CSV</b> → Publish → copy.</small>
+    <label for="paste" style="margin-top:14px">Or paste order JSON from the Orders tab (backup)</label>
+    <textarea id="paste" placeholder='[{"tradingsymbol":"INFY","transaction_type":"BUY","quantity":1,...}]'></textarea>
+    <button class="alt" id="usePaste" style="margin-top:8px">Use pasted JSON</button>
+  </details>
 </main>
+
+<div class="modal" id="modal"><div class="sheet">
+  <h2 id="mTitle"></h2>
+  <table><thead><tr><th>#</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th><th>≈ ₹</th></tr></thead><tbody id="mBody"></tbody>
+    <tfoot><tr><td></td><td colspan="4" style="text-align:left"><b id="mCnt"></b></td><td><b id="mTot"></b></td></tr></tfoot></table>
+  <small id="mNote"></small>
+  <div class="row" style="margin-top:12px"><button class="alt" id="mCancel" style="flex:1">Cancel</button><button class="go" id="mOk" style="flex:2">OK – send to Kite</button></div>
+</div></div>
+
+<form method="post" id="basket-form" action="https://kite.zerodha.com/connect/basket" style="display:none">
+  <input type="hidden" name="api_key" id="f_key"><input type="hidden" name="data" id="f_data">
+</form>
+
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
@@ -81,83 +93,151 @@
     get: function (k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } },
     set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
   };
-  var mode = "MARKET", orders = [];
+  var mode = "MARKET", groups = {}, pending = null;
+  var LABEL = { INITIAL: "Month-1 buy", SELL: "Step 1 – Sell exits", BUY: "Step 2 – Buy replacements" };
 
   $("key").value = store.get("kite_api_key");
-  $("key").addEventListener("input", function () { store.set("kite_api_key", this.value.trim()); refresh(); });
-  $("json").addEventListener("input", refresh);
-  $("buf").addEventListener("input", refresh);
-  Array.prototype.forEach.call(document.querySelectorAll("#mode button"), function (b) {
+  $("url").value = store.get("feed_url");
+  $("key").addEventListener("change", function () { store.set("kite_api_key", this.value.trim()); render(); });
+  $("url").addEventListener("change", function () { store.set("feed_url", this.value.trim()); load(); });
+  $("reload").addEventListener("click", load);
+  $("buf").addEventListener("input", function () { store.set("buf", this.value); });
+  if (store.get("buf")) $("buf").value = store.get("buf");
+  document.querySelectorAll("#mode button").forEach(function (b) {
     b.addEventListener("click", function () {
       mode = b.getAttribute("data-m");
       document.querySelectorAll("#mode button").forEach(function (x) { x.classList.toggle("on", x === b); });
-      $("bufWrap").style.display = mode === "LIMIT" ? "block" : "none";
-      refresh();
+      $("buf").style.display = mode === "LIMIT" ? "block" : "none";
     });
   });
 
-  // Coarsest NSE tick for each price band, so the price is valid under old or new tick rules
-  function tick(p) { return p < 250 ? 0.05 : p < 1000 ? 0.05 : p < 5000 ? 0.1 : p < 10000 ? 0.5 : p < 20000 ? 1 : 5; }
-  function roundTick(p, side) {
-    var t = tick(p), n = side === "BUY" ? Math.ceil(p / t) : Math.floor(p / t);
-    return Math.round(n * t * 100) / 100;
-  }
+  // ---- coming back from Kite ----
+  (function () {
+    var q = new URLSearchParams(location.search), last = store.get("last_sent");
+    if (!last) return;
+    var info = JSON.parse(last), box = $("status");
+    box.style.display = "block";
+    var when = new Date(info.t).toLocaleString("en-IN");
+    var back = q.has("status") || q.has("request_token") || q.has("type");
+    box.innerHTML = "<b>" + (back ? "Back from Kite. " : "") + "Last sent:</b> " + LABEL[info.g] + " (" + info.n + " orders) at " + when +
+      ". Check the order book in Kite to see what filled." +
+      (info.g === "SELL" ? "<br><b>Next:</b> once the sells have filled, send Step 2 below." : "") +
+      (info.g === "BUY" || info.g === "INITIAL" ? "<br><b>Next:</b> update the Holdings tab and Settings B5" + (info.g === "INITIAL" ? " / B6 = YES" : "") + " in the sheet." : "");
+    if (back) history.replaceState(null, "", location.pathname);
+  })();
 
-  function build(raw) {
-    var buf = parseFloat($("buf").value) || 0;
-    return raw.map(function (o) {
-      var ref = Number(o.ref_price), x = {
-        variety: o.variety || "regular", exchange: o.exchange || "NSE",
-        tradingsymbol: String(o.tradingsymbol), transaction_type: o.transaction_type,
-        order_type: mode, product: o.product || "CNC", validity: o.validity || "DAY",
-        quantity: parseInt(o.quantity, 10), readonly: false
-      };
-      if (mode === "LIMIT") {
-        if (!(ref > 0)) throw new Error(x.tradingsymbol + ": no ref_price, so a LIMIT price can't be set");
-        x.price = roundTick(ref * (x.transaction_type === "BUY" ? 1 + buf / 100 : 1 - buf / 100), x.transaction_type);
-      }
-      x._ref = ref;
-      return x;
-    });
-  }
-
-  function refresh() {
-    var tb = document.querySelector("#tbl tbody"), txt = $("json").value.trim();
-    tb.innerHTML = ""; orders = []; $("parseMsg").textContent = ""; $("parseMsg").className = "msg";
-    var total = 0;
-    if (txt) {
-      try {
-        var raw = JSON.parse(txt);
-        if (!Array.isArray(raw)) throw new Error("JSON must be a list [ ... ]");
-        if (!raw.length) throw new Error("No orders in this JSON (nothing to do this month).");
-        orders = build(raw);
-        orders.forEach(function (o, i) {
-          var p = o.price || o._ref || 0, v = p * o.quantity; total += v;
-          var tr = document.createElement("tr");
-          tr.innerHTML = "<td>" + (i + 1) + "</td><td>" + o.tradingsymbol + "</td><td class='" + o.transaction_type + "'>" +
-            o.transaction_type + "</td><td>" + o.quantity + "</td><td>" + (o.price ? o.price.toFixed(2) : "MKT ~" + (o._ref || 0).toFixed(2)) +
-            "</td><td>" + Math.round(v).toLocaleString("en-IN") + "</td>";
-          tb.appendChild(tr);
-        });
-        var sides = {}; orders.forEach(function (o) { sides[o.transaction_type] = 1; });
-        $("parseMsg").className = "msg ok";
-        $("parseMsg").textContent = orders.length + " orders read." + (sides.BUY && sides.SELL ? " Note: this mixes BUY and SELL. Send sells first." : "");
-      } catch (e) { orders = []; $("parseMsg").className = "msg err"; $("parseMsg").textContent = e.message; }
+  function parseCSV(text) {
+    var out = [], row = [], cur = "", q = false;
+    for (var i = 0; i < text.length; i++) {
+      var c = text[i];
+      if (q) { if (c === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; }
+      else if (c === '"') q = true;
+      else if (c === ",") { row.push(cur); cur = ""; }
+      else if (c === "\n" || c === "\r") { if (c === "\r" && text[i + 1] === "\n") i++; row.push(cur); out.push(row); row = []; cur = ""; }
+      else cur += c;
     }
-    $("cnt").textContent = orders.length ? orders.length + " orders" : "";
-    $("tot").textContent = orders.length ? "≈ ₹" + Math.round(total).toLocaleString("en-IN") : "";
-    $("send").disabled = !(orders.length && $("key").value.trim());
+    if (cur || row.length) { row.push(cur); out.push(row); }
+    return out;
   }
 
-  $("send").addEventListener("click", function () {
-    var data = orders.map(function (o) { var c = {}; for (var k in o) if (k !== "_ref") c[k] = o[k]; return c; });
+  function setGroups(list, source) {
+    groups = {};
+    list.forEach(function (o) {
+      if (!o.symbol || !(o.qty > 0)) return;
+      (groups[o.step] = groups[o.step] || []).push(o);
+    });
+    $("loaded").textContent = source + " · " + new Date().toLocaleTimeString("en-IN");
+    render();
+  }
+
+  function load() {
+    var url = $("url").value.trim();
+    if (!url) { $("setup").open = true; $("groups").innerHTML = "<div class='card'>Open <b>Setup</b> below and add your API key and the published Feed link.</div>"; return; }
+    $("groups").innerHTML = "<div class='card'>Loading orders from the sheet…</div>";
+    fetch(url + (url.indexOf("?") > -1 ? "&" : "?") + "t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.text(); })
+      .then(function (t) {
+        var rows = parseCSV(t), h = rows.shift().map(function (x) { return x.trim().toLowerCase(); });
+        var ix = function (n) { return h.indexOf(n); };
+        if (ix("step") < 0 || ix("symbol") < 0) throw new Error("This link isn't the Feed tab (no Step/Symbol columns).");
+        setGroups(rows.map(function (r) {
+          return { step: (r[ix("step")] || "").trim(), symbol: (r[ix("symbol")] || "").trim(), side: (r[ix("side")] || "").trim(),
+                   qty: parseInt(r[ix("qty")], 10), ref: parseFloat(String(r[ix("refprice")]).replace(/,/g, "")) };
+        }), "Loaded from sheet");
+      })
+      .catch(function (e) {
+        $("groups").innerHTML = "<div class='card err'>Couldn't read the sheet: " + e.message +
+          ". Check the published link (Feed tab, CSV). You can also paste JSON in Setup.</div>";
+      });
+  }
+
+  $("usePaste").addEventListener("click", function () {
+    try {
+      var raw = JSON.parse($("paste").value);
+      setGroups(raw.map(function (o) {
+        return { step: o.transaction_type === "SELL" ? "SELL" : "BUY", symbol: o.tradingsymbol, side: o.transaction_type,
+                 qty: parseInt(o.quantity, 10), ref: Number(o.ref_price) };
+      }), "From pasted JSON");
+      $("setup").open = false;
+    } catch (e) { alertBox("Pasted JSON is not valid: " + e.message); }
+  });
+
+  function alertBox(t) { $("groups").innerHTML = "<div class='card err'>" + t + "</div>"; }
+
+  function render() {
+    var order = ["INITIAL", "SELL", "BUY"], html = "", next = null, last = store.get("last_sent");
+    var lastG = last ? JSON.parse(last).g : "";
+    order.forEach(function (g) { if (groups[g] && !next && !(g === "SELL" && lastG === "SELL" && groups.BUY)) next = g; });
+    if (!next) order.forEach(function (g) { if (groups[g] && !next) next = g; });
+    order.forEach(function (g) {
+      var list = groups[g]; if (!list) return;
+      var tot = list.reduce(function (s, o) { return s + o.qty * (o.ref || 0); }, 0);
+      html += "<div class='card" + (g === next ? " next" : "") + "'><h2>" + LABEL[g] + "<span class='badge'>" + list.length + " orders · ≈ ₹" +
+        Math.round(tot).toLocaleString("en-IN") + "</span></h2><small>" +
+        list.map(function (o) { return o.symbol + " " + o.qty; }).join(" · ") + "</small>" +
+        "<button class='go' style='margin-top:10px' data-g='" + g + "'" + ($("key").value.trim() ? "" : " disabled") + ">Review " + (g === "SELL" ? "sells" : "buys") + "</button></div>";
+    });
+    if (!html) html = "<div class='card ok'>No orders this month. All holdings are still in the top ranks.</div>";
+    if (!$("key").value.trim()) html += "<div class='card err'>Add your API key in Setup to enable sending.</div>";
+    $("groups").innerHTML = html;
+    document.querySelectorAll("#groups button[data-g]").forEach(function (b) { b.addEventListener("click", function () { review(b.getAttribute("data-g")); }); });
+  }
+
+  function tick(p) { return p < 1000 ? 0.05 : p < 5000 ? 0.1 : p < 10000 ? 0.5 : p < 20000 ? 1 : 5; }
+  function roundTick(p, side) { var t = tick(p), n = side === "BUY" ? Math.ceil(p / t) : Math.floor(p / t); return Math.round(n * t * 100) / 100; }
+
+  function review(g) {
+    var buf = parseFloat($("buf").value) || 0, tot = 0, body = "";
+    pending = { g: g, orders: groups[g].map(function (o) {
+      var side = o.side === "SELL" ? "SELL" : "BUY";
+      var x = { variety: "regular", exchange: "NSE", tradingsymbol: o.symbol, transaction_type: side, order_type: mode,
+                product: "CNC", validity: "DAY", quantity: o.qty, readonly: false };
+      if (mode === "LIMIT") x.price = roundTick(o.ref * (side === "BUY" ? 1 + buf / 100 : 1 - buf / 100), side);
+      return { x: x, ref: o.ref };
+    }) };
+    pending.orders.forEach(function (p, i) {
+      var pr = p.x.price || p.ref || 0, v = pr * p.x.quantity; tot += v;
+      body += "<tr><td>" + (i + 1) + "</td><td>" + p.x.tradingsymbol + "</td><td class='" + p.x.transaction_type + "'>" + p.x.transaction_type +
+        "</td><td>" + p.x.quantity + "</td><td>" + (p.x.price ? p.x.price.toFixed(2) : "MKT ~" + (p.ref || 0).toFixed(2)) + "</td><td>" + Math.round(v).toLocaleString("en-IN") + "</td></tr>";
+    });
+    $("mTitle").textContent = LABEL[g] + " – confirm";
+    $("mBody").innerHTML = body;
+    $("mCnt").textContent = pending.orders.length + " orders, " + mode + ", CNC, NSE";
+    $("mTot").textContent = "≈ ₹" + Math.round(tot).toLocaleString("en-IN");
+    $("mNote").textContent = "Prices are from the scanner sheet, so live prices will differ. Kite opens next: log in, check the basket, then tap Place.";
+    $("modal").classList.add("show");
+  }
+  $("mCancel").addEventListener("click", function () { $("modal").classList.remove("show"); pending = null; });
+  $("mOk").addEventListener("click", function () {
+    if (!pending) return;
+    store.set("last_sent", JSON.stringify({ g: pending.g, n: pending.orders.length, t: Date.now() }));
     $("f_key").value = $("key").value.trim();
-    $("f_data").value = JSON.stringify(data);
-    $("sendMsg").textContent = "Opening Kite…";
+    $("f_data").value = JSON.stringify(pending.orders.map(function (p) { return p.x; }));
+    $("mOk").disabled = true; $("mOk").textContent = "Opening Kite…";
     $("basket-form").submit();
   });
 
-  refresh();
+  load();
 })();
 </script>
 </body>
