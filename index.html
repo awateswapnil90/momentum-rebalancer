@@ -48,6 +48,7 @@
   <div class="card">
     <div class="row">
       <button class="alt" id="reload" style="flex:1">↻ Reload from sheet</button>
+      <button class="alt" id="sync" style="flex:1">⇅ Sync fills to sheet</button>
     </div>
     <small id="loaded"></small>
   </div>
@@ -67,7 +68,9 @@
     <input id="key" type="text" placeholder="API key (never the API secret)" autocomplete="off">
     <label for="url">Published CSV link of the sheet's "Feed" tab</label>
     <input id="url" type="text" placeholder="https://docs.google.com/spreadsheets/d/e/.../pub?gid=...&single=true&output=csv" autocomplete="off">
-    <small>Both are stored only in this browser. To get the link: Sheet → File → Share → Publish to web → choose <b>Feed</b> and <b>CSV</b> → Publish → copy.</small>
+    <label for="syncUrl">Sync link (from the sheet: Kite menu → Show links)</label>
+    <input id="syncUrl" type="text" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off">
+    <small>All three are stored only in this browser. To get the Feed link: Sheet → File → Share → Publish to web → choose <b>Feed</b> and <b>CSV</b> → Publish → copy.</small>
     <label for="paste" style="margin-top:14px">Or paste order JSON from the Orders tab (backup)</label>
     <textarea id="paste" placeholder='[{"tradingsymbol":"INFY","transaction_type":"BUY","quantity":1,...}]'></textarea>
     <button class="alt" id="usePaste" style="margin-top:8px">Use pasted JSON</button>
@@ -102,6 +105,13 @@
 
   $("key").value = store.get("kite_api_key");
   $("url").value = store.get("feed_url");
+  $("syncUrl").value = store.get("sync_url");
+  $("syncUrl").addEventListener("change", function () { store.set("sync_url", this.value.trim()); });
+  $("sync").addEventListener("click", function () {
+    var u = $("syncUrl").value.trim();
+    if (!u) { $("setup").open = true; $("syncUrl").focus(); return; }
+    location.href = u;
+  });
   $("key").addEventListener("change", function () { store.set("kite_api_key", this.value.trim()); render(); });
   $("url").addEventListener("change", function () { store.set("feed_url", this.value.trim()); load(); });
   $("reload").addEventListener("click", load);
@@ -124,9 +134,9 @@
     var when = new Date(info.t).toLocaleString("en-IN");
     var back = q.has("status") || q.has("request_token") || q.has("type");
     box.innerHTML = "<b>" + (back ? "Back from Kite. " : "") + "Last sent:</b> " + LABEL[info.g] + " (" + info.n + " orders) at " + when +
-      ". Check the order book in Kite to see what filled." +
-      (info.g === "SELL" ? "<br><b>Next:</b> once the sells have filled, send Step 2 below." : "") +
-      (info.g === "BUY" || info.g === "INITIAL" ? "<br><b>Next:</b> update the Holdings tab and Settings B5" + (info.g === "INITIAL" ? " / B6 = YES" : "") + " in the sheet." : "");
+      ". When the orders have filled, tap <b>Sync fills to sheet</b> (same day)." +
+      (info.g === "SELL" ? "<br><b>Next:</b> after the sells fill, Sync, then Reload and send Step 2." : "") +
+      (info.g === "SELL" ? "" : "<br>Sync updates Holdings, Trade Log, cash and the Dashboard.");
     if (back) history.replaceState(null, "", location.pathname);
   })();
 
@@ -215,7 +225,7 @@
     pending = { g: g, orders: groups[g].map(function (o) {
       var side = o.side === "SELL" ? "SELL" : "BUY";
       var x = { variety: "regular", exchange: "NSE", tradingsymbol: o.symbol, transaction_type: side, order_type: mode,
-                product: "CNC", validity: "DAY", quantity: o.qty, readonly: false };
+                product: "CNC", validity: "DAY", quantity: o.qty, tag: "MOMRB", readonly: false };
       if (mode === "LIMIT") x.price = roundTick(o.ref * (side === "BUY" ? 1 + buf / 100 : 1 - buf / 100), side);
       return { x: x, ref: o.ref };
     }) };

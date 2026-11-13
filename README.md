@@ -1,18 +1,16 @@
 # Momentum Rebalancer
 
-Static page that reads this month's orders from the "Momentum Rebalancer" Google Sheet (published **Feed** tab, CSV), shows them for review, and sends them to a Zerodha Kite basket (Kite Publisher offsite order execution) when you press OK.
+- **index.html** (GitHub Pages): reads this month's orders from the Google Sheet's published **Feed** tab, shows them for review, and sends them to a Zerodha Kite basket (Kite Publisher) when you press OK. A **Sync fills to sheet** button opens the sheet's sync script.
+- **apps-script/Code.gs**: Google Apps Script bound to the sheet. After a Kite login it reads today's orders, keeps only filled CNC orders sent from this page (Kite tag `kc:pub` / `MOMRB`), and updates Holdings, Trade Log (realized P&L), cash, History and the Dashboard.
 
 ## One-time setup
-1. In the sheet: File → Share → Publish to web → choose the **Feed** tab and **CSV** → Publish → copy the link.
-2. Open the GitHub Pages link → **Setup**: paste the Kite Publisher **API key** and the Feed link. Both stay in your browser only. Never paste the API secret.
-3. In the Kite developer console, set the app's Redirect URL to the GitHub Pages link.
+1. Sheet → Extensions → Apps Script → paste `apps-script/Code.gs` → Save → Deploy → New deployment → Web app (Execute as: Me, Who has access: Anyone) → Deploy → authorize.
+2. Reload the sheet → **Kite** menu → *Save API key & secret* (free Kite Connect **Personal** app).
+3. **Kite** menu → *Show links* → put the URL in the Personal app's Redirect URL (developers.kite.trade).
+4. Sheet → File → Share → Publish to web → **Feed** tab, CSV → Publish.
+5. This page → Setup: Publisher API key, Feed CSV link, Sync link. Stored only in your browser. Never put an API secret on this page.
 
 ## Each month
-1. Import the new scanner CSV into the sheet's Scanner tab.
-2. Open the page → **Review sells** → OK → place in Kite.
-3. After the sells fill, reload → **Review buys** → OK → place in Kite.
-4. Update Holdings and the cash cell (Settings B5) in the sheet.
+Import the new scanner CSV into the Scanner tab → page: send sells → Sync → Reload → send buys → Sync. Sync on the same day as the trades.
 
-If Kite rejects MARKET orders from the basket, switch to **LIMIT**: ref price ± buffer, rounded to a valid tick.
-
-Not investment advice. Nothing is placed until you confirm in Kite.
+Not investment advice. Nothing is placed until you confirm in Kite. P&L is gross of charges.
