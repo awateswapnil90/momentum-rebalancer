@@ -77,10 +77,28 @@ function doGet(e) {
       '<p><a class="btn" target="_top" href="' + login + '">Log in to Kite &amp; sync</a></p>');
   }
   if (q.status && q.status !== 'success') return page_('Kite login failed', '<p>' + esc_(q.status) + '</p>');
+
+  // A Kite request_token works only once. Browsers sometimes load this page twice,
+  // so remember the result for each token and show it again instead of re-using the token.
+  var cache = CacheService.getScriptCache(), ck = 'rt_' + sha256Hex_(q.request_token).slice(0, 40);
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
   try {
-    return page_('Sync done', syncWithToken_(key, sec, q.request_token));
-  } catch (err) {
-    return page_('Sync failed', '<p>' + esc_(err.message) + '</p><p>Try the sync link again.</p>');
+    var seen = cache.get(ck);
+    if (seen) return page_('Sync done', seen);
+    var body;
+    try {
+      body = syncWithToken_(key, sec, q.request_token);
+    } catch (err) {
+      return page_('Sync failed', '<p>' + esc_(err.message) + '</p>' +
+        '<p>App key in use: <b>' + esc_(key.slice(0, 4)) + '…' + esc_(key.slice(-3)) + '</b>. It must be your Kite Connect <b>Personal</b> app ' +
+        '(not the Publisher app), with that same app\'s secret. If not, re-save them via Kite &gt; Save API key &amp; secret.</p>' +
+        '<p><a class="btn" target="_top" href="' + ScriptApp.getService().getUrl() + '">Try again</a></p>');
+    }
+    cache.put(ck, body, 21600);
+    return page_('Sync done', body);
+  } finally {
+    lock.releaseLock();
   }
 }
 
@@ -138,9 +156,7 @@ function isStrategy_(o) {
 }
 
 function applyOrders_(orders, kiteHoldings) {
-  var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
-  try {
+  {
     var ss = SpreadsheetApp.openById(props_().getProperty('SHEET_ID'));
     var log = ss.getSheetByName('Trade Log'), hold = ss.getSheetByName('Holdings'),
         set = ss.getSheetByName('Settings'), hist = ss.getSheetByName('History');
@@ -249,7 +265,5 @@ function applyOrders_(orders, kiteHoldings) {
     warn.forEach(function (w) { t += '<p style="color:#c0262d">' + esc_(w) + '</p>'; });
     t += '<p><a href="https://docs.google.com/spreadsheets/d/' + ss.getId() + '/edit" target="_top">Open the sheet</a></p>';
     return t;
-  } finally {
-    lock.releaseLock();
   }
 }
