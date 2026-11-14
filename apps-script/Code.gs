@@ -29,6 +29,8 @@ function onOpen() {
     .addItem('2. Show links (redirect + sync)', 'showLinks')
     .addSeparator()
     .addItem('Sync fills now', 'showLinks')
+    .addSeparator()
+    .addItem('Run demo (on a copy of this sheet)', 'runDemo')
     .addToUi();
 }
 
@@ -155,9 +157,9 @@ function isStrategy_(o) {
   return tags.some(function (t) { return STRATEGY_TAGS.indexOf(t) > -1; });
 }
 
-function applyOrders_(orders, kiteHoldings) {
+function applyOrders_(orders, kiteHoldings, ssOverride) {
   {
-    var ss = SpreadsheetApp.openById(props_().getProperty('SHEET_ID'));
+    var ss = ssOverride || SpreadsheetApp.openById(props_().getProperty('SHEET_ID'));
     var log = ss.getSheetByName('Trade Log'), hold = ss.getSheetByName('Holdings'),
         set = ss.getSheetByName('Settings'), hist = ss.getSheetByName('History');
 
@@ -266,4 +268,58 @@ function applyOrders_(orders, kiteHoldings) {
     t += '<p><a href="https://docs.google.com/spreadsheets/d/' + ss.getId() + '/edit" target="_top">Open the sheet</a></p>';
     return t;
   }
+}
+
+
+// ---------------- Demo (runs on a COPY, never on this sheet) ----------------
+function runDemo() {
+  var ui = SpreadsheetApp.getUi();
+  var ok = ui.alert('Run demo', 'This makes a COPY of this sheet and fills it with made-up trades ' +
+    '(a month-1 buy, then a month-2 rebalance). Your real sheet is not changed. Continue?', ui.ButtonSet.OK_CANCEL);
+  if (ok !== ui.Button.OK) return;
+  var src = SpreadsheetApp.getActiveSpreadsheet();
+  var copy = src.copy('Momentum Rebalancer – DEMO (safe to delete)');
+  SpreadsheetApp.flush();
+
+  var fmt = function (d) { return Utilities.formatDate(d, TZ, 'yyyy-MM-dd HH:mm:ss'); };
+  var id = 900000, day1 = new Date(), day2 = new Date(day1.getTime() + 21 * 86400000);
+  var mk = function (sym, side, q, px, d) {
+    id++;
+    return { order_id: 'DEMO' + id, tradingsymbol: sym, transaction_type: side, filled_quantity: q,
+      average_price: Math.round(px * 100) / 100, status: 'COMPLETE', tags: ['kc:pub'], product: 'CNC',
+      order_timestamp: fmt(d), exchange_timestamp: fmt(d) };
+  };
+
+  // Month 1: the Initial tab's plan, filled 0.2% above the scanner price
+  var plan = copy.getSheetByName('Initial').getRange(2, 2, 20, 7).getValues()
+    .filter(function (r) { return r[0] && r[6] > 0; });
+  if (!plan.length) { ui.alert('The Initial tab has no orders, so there is nothing to demo.'); return; }
+  var price = {};
+  plan.forEach(function (r) { price[r[0]] = Number(r[1]); });
+  var o1 = plan.map(function (r) { return mk(r[0], 'BUY', Number(r[6]), Number(r[1]) * 1.002, day1); });
+
+  // Month 2: sell the first two (one up 10%, one down 8%), buy rank 21 and 22 with the proceeds
+  var s1 = plan[0], s2 = plan[1 % plan.length];
+  var sells = [mk(s1[0], 'SELL', Number(s1[6]), Number(s1[1]) * 1.10, day2)];
+  if (plan.length > 1) sells.push(mk(s2[0], 'SELL', Number(s2[6]), Number(s2[1]) * 0.92, day2));
+  var proceeds = sells.reduce(function (a, o) { return a + o.filled_quantity * o.average_price; }, 0);
+  var ranked = copy.getSheetByName('Ranked').getRange(22, 2, 10, 2).getValues()
+    .filter(function (r) { return r[0] && !price[r[0]]; }).slice(0, sells.length);
+  var buys = ranked.map(function (r) {
+    price[r[0]] = Number(r[1]);
+    return mk(r[0], 'BUY', Math.floor(proceeds / sells.length / Number(r[1])), Number(r[1]) * 1.003, day2);
+  }).filter(function (o) { return o.filled_quantity > 0; });
+
+  // Pretend prices have moved +6% since
+  var ltp = Object.keys(price).map(function (k) { return { tradingsymbol: k, last_price: Math.round(price[k] * 1.06 * 100) / 100 }; });
+
+  applyOrders_(o1, ltp, copy);
+  applyOrders_(sells.concat(buys), ltp, copy);
+
+  var url = copy.getUrl();
+  ui.showModalDialog(HtmlService.createHtmlOutput(
+    '<div style="font:14px Arial"><p>Demo copy created with ' + o1.length + ' month-1 buys, ' + sells.length + ' sells and ' + buys.length +
+    ' replacement buys (all made up).</p><p>Look at its <b>Dashboard</b>, <b>Holdings</b>, <b>Trade Log</b> and <b>History</b> tabs.</p>' +
+    '<p><a href="' + url + '" target="_blank">Open the demo copy</a></p><p>Delete the copy when you are done.</p></div>')
+    .setWidth(420).setHeight(220), 'Demo ready');
 }
