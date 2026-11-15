@@ -31,6 +31,7 @@ function onOpen() {
     .addItem('Sync fills now', 'showLinks')
     .addSeparator()
     .addItem('Run demo (on a copy of this sheet)', 'runDemo')
+    .addItem('Use latest prices for quantities (one-time upgrade)', 'upgradeLivePrices')
     .addToUi();
 }
 
@@ -322,4 +323,44 @@ function runDemo() {
     ' replacement buys (all made up).</p><p>Look at its <b>Dashboard</b>, <b>Holdings</b>, <b>Trade Log</b> and <b>History</b> tabs.</p>' +
     '<p><a href="' + url + '" target="_blank">Open the demo copy</a></p><p>Delete the copy when you are done.</p></div>')
     .setWidth(420).setHeight(220), 'Demo ready');
+}
+
+
+// ---------------- Upgrade: size orders on the latest price, not the scanner LCP ----------------
+function upgradeLivePrices() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), ui = SpreadsheetApp.getUi();
+  var set = ss.getSheetByName('Settings'), calc = ss.getSheetByName('Calc'),
+      rk = ss.getSheetByName('Ranked'), rb = ss.getSheetByName('Rebalance');
+  if (!set || !calc || !rk || !rb) { ui.alert('This sheet is missing Settings/Calc/Ranked/Rebalance tabs.'); return; }
+  var N = 300, H = 100, i, f;
+
+  set.getRange('A15:C15').setValues([['Price for quantities (LIVE/LCP)', 'LIVE',
+    'LIVE = latest NSE price from Google Finance (about 15-20 min delayed; last close when the market is shut). LCP = scanner price']]);
+
+  calc.getRange('E1:F1').setValues([['Price used', 'Source']]);
+  f = [];
+  for (i = 2; i <= N + 1; i++) {
+    var g = 'GOOGLEFINANCE("NSE:"&A' + i + ')';
+    f.push(['=IF(A' + i + '="","",IF(UPPER(TRIM(Settings!$B$15))="LIVE",IFERROR(IF(' + g + '>0,' + g + ',B' + i + '),B' + i + '),B' + i + '))',
+            '=IF(A' + i + '="","",IF(E' + i + '=B' + i + ',"LCP","LIVE"))']);
+  }
+  calc.getRange(2, 5, N, 2).setFormulas(f);
+
+  rk.getRange('C1').setValue('Price');
+  f = [];
+  for (i = 2; i <= N + 1; i++) f.push(['=IFERROR(INDEX(Calc!$E$2:$E$' + (N + 1) + ',MATCH(A' + i + ',Calc!$D$2:$D$' + (N + 1) + ',0)),"")']);
+  rk.getRange(2, 3, N, 1).setFormulas(f);
+
+  rb.getRange('D1').setValue('New price');
+  f = [];
+  for (i = 2; i <= H + 1; i++) f.push(['=IF(A' + i + '="","",IFERROR(INDEX(Calc!$E$2:$E$' + (N + 1) + ',MATCH(A' + i + ',Calc!$A$2:$A$' + (N + 1) + ',0)),""))']);
+  rb.getRange(2, 4, H, 1).setFormulas(f);
+
+  var ini = ss.getSheetByName('Initial'); if (ini) ini.getRange('C1').setValue('Price');
+  var bu = ss.getSheetByName('Buys'); if (bu) bu.getRange('D1').setValue('Price');
+
+  SpreadsheetApp.flush();
+  ui.alert('Done. Quantities now use the latest NSE price (Settings B15 = LIVE). ' +
+    'Calc tab, column F shows LIVE or LCP per stock; LCP means Google Finance had no price for that symbol, so the scanner price is used. ' +
+    'Set B15 to LCP to go back.');
 }
