@@ -34,6 +34,7 @@ function onOpen() {
     .addItem('Use latest prices for quantities (one-time upgrade)', 'upgradeLivePrices')
     .addItem('Fix old dates to India time (run once)', 'fixDatesToIST')
     .addItem('Update ledger & monthly summary now', 'updateLedgerNow')
+    .addItem('Organize tabs & refresh README', 'organizeTabsNow')
     .addToUi();
 }
 
@@ -403,8 +404,15 @@ function fixDatesToIST() {
 
 // ---------------- Ledger: running cash / running P&L on Trade Log + Monthly Summary tab ----------------
 function updateLedgerNow() {
-  ensureLedger_(SpreadsheetApp.getActiveSpreadsheet());
-  SpreadsheetApp.getUi().alert('Ledger updated: Trade Log columns K-M (Cycle, Cash balance, Realized P&L to date) and the Monthly Summary tab.');
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  ensureLedger_(ss);
+  organizeTabs_(ss);
+  SpreadsheetApp.getUi().alert('Ledger updated (Trade Log columns K-M + Monthly Summary). Tabs re-ordered and colour-coded; helper tabs hidden. See README for the tab guide.');
+}
+
+function organizeTabsNow() {
+  organizeTabs_(SpreadsheetApp.getActiveSpreadsheet());
+  SpreadsheetApp.getUi().alert('Tabs re-ordered and colour-coded; helper tabs hidden. README has the full tab guide.');
 }
 
 function ensureLedger_(ss) {
@@ -470,4 +478,87 @@ function rebuildSummary_(ss) {
   sum.setFrozenRows(1);
   sum.setColumnWidths(1, 2, 100); sum.setColumnWidths(3, 4, 90); sum.setColumnWidths(7, 2, 260); sum.setColumnWidths(9, 3, 130);
   sum.getRange(rows.length + 4, 1).setValue('Built from Trade Log on every sync (or Kite > Update ledger & monthly summary now). P&L is before brokerage and taxes.');
+}
+
+
+// ---------------- Tab layout + README ----------------
+var TABS = [
+  // name, colour, hidden, group, purpose
+  ['Dashboard', '#0b8043', false, 'VIEW', 'Portfolio totals: invested, current value, unrealized and realized P&L, cash, total return, last sync.'],
+  ['Holdings', '#0b8043', false, 'VIEW', 'Stocks you own now: qty, average buy price, buy date, notes, live price, value and P&L per stock. Kept up to date by Sync.'],
+  ['Trade Log', '#1a73e8', false, 'LEDGER', 'Every buy and sell in date order (never overwritten): price, value, realized P&L on sells, Cycle (month), running cash balance, running realized P&L.'],
+  ['Monthly Summary', '#1a73e8', false, 'LEDGER', 'One row per month: initial buy or rebalance, stocks sold, stocks bought, realized P&L, cash and portfolio total at month end.'],
+  ['History', '#1a73e8', false, 'LEDGER', 'Snapshot after every sync: invested, value, cash, portfolio total, realized and total P&L.'],
+  ['Scanner', '#f9ab00', false, 'MONTHLY INPUT', 'Paste/import the new scanner CSV here after the 5th (Ctrl+A, Delete, click A1, File > Import > Replace data at selected cell).'],
+  ['Rebalance', '#f9ab00', false, 'MONTHLY CHECK', 'Each holding\'s new rank and KEEP/SELL. Type a price in column E only when the Warning column asks.'],
+  ['Settings', '#9aa0a6', false, 'SETUP', 'Capital, number of stocks, exit rank, cash (updated by Sync), month-1 flag, price mode (LIVE/LCP), last sync.'],
+  ['README', '#9aa0a6', false, 'SETUP', 'This guide.'],
+  ['Feed', '#9aa0a6', false, 'SYSTEM', 'Orders the GitHub page reads (published to the web as CSV). Kept visible because hidden tabs may stop being published. Do not edit.'],
+  ['Buys', '#dadce0', true, 'HELPER', 'Sizes the new buys for empty slots (cash shared equally).'],
+  ['Initial', '#dadce0', true, 'HELPER', 'Month-1 plan: top N by Return %, equal amounts, leftover cash spread.'],
+  ['Ranked', '#dadce0', true, 'HELPER', 'Scanner sorted by Return %, with HELD flags and next-buy order.'],
+  ['Calc', '#dadce0', true, 'HELPER', 'Reads the Scanner columns by header name, picks the price (LIVE or LCP) and ranks.'],
+  ['Orders', '#dadce0', true, 'HELPER', 'Old copy-paste order JSON (backup only; the page uses Feed).']
+];
+
+function organizeTabs_(ss) {
+  var pos = 1;
+  TABS.forEach(function (t) {
+    var sh = ss.getSheetByName(t[0]);
+    if (!sh) return;
+    if (sh.isSheetHidden()) sh.showSheet();
+    ss.setActiveSheet(sh);
+    ss.moveActiveSheet(pos++);
+    sh.setTabColor(t[1]);
+  });
+  writeReadme_(ss);
+  TABS.forEach(function (t) {
+    var sh = ss.getSheetByName(t[0]);
+    if (sh && t[2]) sh.hideSheet();
+  });
+  var d = ss.getSheetByName('Dashboard');
+  if (d) ss.setActiveSheet(d);
+}
+
+function writeReadme_(ss) {
+  var sh = ss.getSheetByName('README') || ss.insertSheet('README');
+  sh.clear();
+  var R = [];
+  var add = function (a, b, c, d) { R.push([a || '', b || '', c || '', d || '']); };
+  add('Momentum Portfolio Rebalancer – guide');
+  add('');
+  add('TABS', 'Shown?', 'Group', 'What it is for');
+  TABS.forEach(function (t) { add(t[0], t[2] ? 'Hidden' : 'Visible', t[3], t[4]); });
+  add('');
+  add('Colours: green = view your portfolio, blue = ledger/records, orange = monthly input/check, grey = setup/system, light grey = hidden helpers.');
+  add('To see a hidden tab: View > Hidden sheets (or the tab list button at bottom-left) and pick it. Kite > Organize tabs & refresh README hides them again.');
+  add('');
+  add('EVERY MONTH (after the 5th)');
+  add('1. Scanner tab: Ctrl+A, Delete, click A1, File > Import > upload new CSV > Replace data at selected cell.');
+  add('2. Rebalance tab: check KEEP/SELL; if the Warning column asks, type that stock\'s current price in column E.');
+  add('3. GitHub page: Reload from sheet > Review sells > OK > place in Kite (use LIMIT, buffer 0.5).');
+  add('4. After sells fill: Sync fills to sheet. Then Reload > Review buys > OK > place in Kite > after fills, Sync again (same day).');
+  add('5. Check Dashboard, Trade Log and Monthly Summary.');
+  add('');
+  add('KITE MENU');
+  add('Save API key & secret', '', '', 'Kite Connect Personal app keys (stored privately in the script).');
+  add('Show links', '', '', 'Redirect/Sync link (/exec) for the Kite app and the GitHub page.');
+  add('Update ledger & monthly summary now', '', '', 'Rebuilds ledger columns and Monthly Summary, then re-organizes tabs.');
+  add('Organize tabs & refresh README', '', '', 'Re-orders, colours and hides tabs; rewrites this guide.');
+  add('Use latest prices for quantities', '', '', 'One-time: size orders on the latest NSE price (Settings B15 LIVE/LCP).');
+  add('Run demo', '', '', 'Makes a COPY of this sheet with made-up trades to preview everything.');
+  add('');
+  add('NOTES');
+  add('Only orders sent from the GitHub page (Kite tag kc:pub / MOMRB) are recorded; other Kite trades are ignored.');
+  add('P&L is before brokerage and taxes. Live prices come from Google Finance (about 15-20 min delayed).');
+  add('Not investment advice. Every order is reviewed and placed by you in Kite.');
+  sh.getRange(1, 1, R.length, 4).setValues(R);
+  sh.getRange('A1').setFontSize(14).setFontWeight('bold');
+  sh.getRange(3, 1, 1, 4).setFontWeight('bold').setFontColor('#ffffff').setBackground('#1F4E78');
+  TABS.forEach(function (t, i) { sh.getRange(4 + i, 1).setBackground(t[1]).setFontColor(t[2] ? '#202124' : '#ffffff').setFontWeight('bold'); });
+  R.forEach(function (r, i) {
+    if (/^(EVERY MONTH|KITE MENU|NOTES)/.test(r[0])) sh.getRange(i + 1, 1).setFontWeight('bold');
+  });
+  sh.setColumnWidth(1, 260); sh.setColumnWidth(2, 80); sh.setColumnWidth(3, 120); sh.setColumnWidth(4, 640);
+  sh.getRange(1, 4, R.length, 1).setWrap(true);
 }
