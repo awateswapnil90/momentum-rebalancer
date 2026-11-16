@@ -33,6 +33,7 @@ function onOpen() {
     .addItem('Run demo (on a copy of this sheet)', 'runDemo')
     .addItem('Use latest prices for quantities (one-time upgrade)', 'upgradeLivePrices')
     .addItem('Fix old dates to India time (run once)', 'fixDatesToIST')
+    .addItem('Update ledger & monthly summary now', 'updateLedgerNow')
     .addToUi();
 }
 
@@ -255,6 +256,7 @@ function applyOrders_(orders, kiteHoldings, ssOverride) {
       .forEach(function (r) { realizedCum += Number(r[0]) || 0; });
     var capital = Number(set.getRange('B2').getValue()) || 0;
     hist.appendRow([now, cost, value, cash, value + cash, realizedCum, value + cash - capital]);
+    ensureLedger_(ss);
 
     // result page
     var t = '<p>' + (rows.length ? 'Recorded <b>' + nB + ' buys</b> and <b>' + nS + ' sells</b>.' : 'No new filled orders from the rebalancer today.') + '</p>';
@@ -396,4 +398,76 @@ function fixDatesToIST() {
   ss.getSheetByName('History').getRange('A2:A').setNumberFormat('dd-mmm-yyyy hh:mm');
   p.setProperty('DATES_FIXED_IST', new Date().toISOString());
   ui.alert('Converted ' + n + ' dates to India time (Trade Log, Holdings, History, Settings B14).');
+}
+
+
+// ---------------- Ledger: running cash / running P&L on Trade Log + Monthly Summary tab ----------------
+function updateLedgerNow() {
+  ensureLedger_(SpreadsheetApp.getActiveSpreadsheet());
+  SpreadsheetApp.getUi().alert('Ledger updated: Trade Log columns K-M (Cycle, Cash balance, Realized P&L to date) and the Monthly Summary tab.');
+}
+
+function ensureLedger_(ss) {
+  var log = ss.getSheetByName('Trade Log');
+  if (!log) return;
+  log.getRange('K1:M1').setValues([['Cycle', 'Cash balance', 'Realized P&L to date']])
+    .setFontWeight('bold').setFontColor('#ffffff').setBackground('#1F4E78');
+  var last = log.getLastRow();
+  if (last >= 2) {
+    var f = [];
+    for (var r = 2; r <= last; r++) {
+      f.push(['=IF(B' + r + '="","",TEXT(A' + r + ',"mmm-yyyy"))',
+              '=IF(B' + r + '="","",Settings!$B$2+SUMIFS($G$2:G' + r + ',$D$2:D' + r + ',"SELL")-SUMIFS($G$2:G' + r + ',$D$2:D' + r + ',"BUY"))',
+              '=IF(B' + r + '="","",SUM($I$2:I' + r + '))']);
+    }
+    log.getRange(2, 11, f.length, 3).setFormulas(f);
+    log.getRange(2, 12, f.length, 2).setNumberFormat('#,##0;[Red]-#,##0');
+    log.getRange(2, 6, f.length, 4).setNumberFormat('#,##0.00');
+  }
+  rebuildSummary_(ss);
+}
+
+function rebuildSummary_(ss) {
+  var log = ss.getSheetByName('Trade Log'), hist = ss.getSheetByName('History'), set = ss.getSheetByName('Settings');
+  var sum = ss.getSheetByName('Monthly Summary') || ss.insertSheet('Monthly Summary', 2);
+  var capital = Number(set.getRange('B2').getValue()) || 0;
+  var head = ['Month', 'Cycle', 'Buys', 'Buy value', 'Sells', 'Sell value', 'Stocks sold', 'Stocks bought',
+              'Realized P&L', 'Cash at month end', 'Portfolio total at month end (last sync)'];
+  var rows = [], months = {}, order = [], cash = capital;
+  var n = log.getLastRow() - 1;
+  var data = n > 0 ? log.getRange(2, 1, n, 9).getValues() : [];
+  data.forEach(function (r) {
+    if (!(r[0] instanceof Date) || r[1] === '') return;
+    var k = Utilities.formatDate(r[0], TZ, 'yyyy-MM');
+    var m = months[k];
+    if (!m) { m = months[k] = { label: Utilities.formatDate(r[0], TZ, 'MMM-yyyy'), b: 0, bv: 0, s: 0, sv: 0, sold: [], bought: [], pnl: 0, cash: 0 }; order.push(k); }
+    var val = Number(r[6]) || 0;
+    if (r[3] === 'BUY') { m.b++; m.bv += val; m.bought.push(r[2]); cash -= val; }
+    else { m.s++; m.sv += val; m.sold.push(r[2]); m.pnl += Number(r[8]) || 0; cash += val; }
+    m.cash = cash;
+  });
+  var tot = {};
+  if (hist && hist.getLastRow() > 1) hist.getRange(2, 1, hist.getLastRow() - 1, 5).getValues().forEach(function (r) {
+    if (r[0] instanceof Date) tot[Utilities.formatDate(r[0], TZ, 'yyyy-MM')] = r[4];
+  });
+  order.sort().forEach(function (k, i) {
+    var m = months[k];
+    rows.push([m.label, i === 0 ? 'Initial buy' : 'Rebalance', m.b, m.bv, m.s, m.sv,
+      m.sold.join(', '), m.bought.join(', '), m.pnl, m.cash, tot[k] != null ? tot[k] : '']);
+  });
+  sum.clear();
+  sum.getRange(1, 1, 1, head.length).setValues([head])
+    .setFontWeight('bold').setFontColor('#ffffff').setBackground('#1F4E78').setWrap(true);
+  if (rows.length) {
+    sum.getRange(2, 1, rows.length, head.length).setValues(rows);
+    var t = rows.length + 2;
+    sum.getRange(t, 1, 1, 9).setValues([['TOTAL', '', '=SUM(C2:C' + (t - 1) + ')', '=SUM(D2:D' + (t - 1) + ')',
+      '=SUM(E2:E' + (t - 1) + ')', '=SUM(F2:F' + (t - 1) + ')', '', '', '=SUM(I2:I' + (t - 1) + ')']]).setFontWeight('bold');
+    sum.getRange(2, 4, t - 1, 1).setNumberFormat('#,##0');
+    sum.getRange(2, 6, t - 1, 1).setNumberFormat('#,##0');
+    sum.getRange(2, 9, t - 1, 3).setNumberFormat('#,##0;[Red]-#,##0');
+  }
+  sum.setFrozenRows(1);
+  sum.setColumnWidths(1, 2, 100); sum.setColumnWidths(3, 4, 90); sum.setColumnWidths(7, 2, 260); sum.setColumnWidths(9, 3, 130);
+  sum.getRange(rows.length + 4, 1).setValue('Built from Trade Log on every sync (or Kite > Update ledger & monthly summary now). P&L is before brokerage and taxes.');
 }
