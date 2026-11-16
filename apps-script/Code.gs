@@ -32,6 +32,7 @@ function onOpen() {
     .addSeparator()
     .addItem('Run demo (on a copy of this sheet)', 'runDemo')
     .addItem('Use latest prices for quantities (one-time upgrade)', 'upgradeLivePrices')
+    .addItem('Fix old dates to India time (run once)', 'fixDatesToIST')
     .addToUi();
 }
 
@@ -365,4 +366,34 @@ function upgradeLivePrices() {
   ui.alert('Done. Quantities now use the latest NSE price (Settings B15 = LIVE). ' +
     'Calc tab, column F shows LIVE or LCP per stock; LCP means Google Finance had no price for that symbol, so the scanner price is used. ' +
     'Set B15 to LCP to go back.');
+}
+
+
+// ---------------- One-off: convert dates written while the sheet was on US Pacific time ----------------
+function fixDatesToIST() {
+  var OLD = 'America/Los_Angeles', ui = SpreadsheetApp.getUi(), p = props_();
+  if (p.getProperty('DATES_FIXED_IST')) { ui.alert('Already done earlier. Nothing changed.'); return; }
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (ss.getSpreadsheetTimeZone() !== TZ) ss.setSpreadsheetTimeZone(TZ);
+  var F = 'yyyy-MM-dd HH:mm:ss', n = 0;
+  var conv = function (v) {
+    if (!(v instanceof Date)) return v;
+    n++;
+    return Utilities.parseDate(Utilities.formatDate(v, TZ, F), OLD, F);
+  };
+  var fixCol = function (sheetName, col) {
+    var sh = ss.getSheetByName(sheetName);
+    if (!sh || sh.getLastRow() < 2) return;
+    var rg = sh.getRange(2, col, sh.getLastRow() - 1, 1);
+    rg.setValues(rg.getValues().map(function (r) { return [conv(r[0])]; }));
+  };
+  fixCol('Trade Log', 1);
+  fixCol('Holdings', 4);
+  fixCol('History', 1);
+  var b14 = ss.getSheetByName('Settings').getRange('B14');
+  b14.setValue(conv(b14.getValue()));
+  ss.getSheetByName('Trade Log').getRange('A2:A').setNumberFormat('dd-mmm-yyyy hh:mm');
+  ss.getSheetByName('History').getRange('A2:A').setNumberFormat('dd-mmm-yyyy hh:mm');
+  p.setProperty('DATES_FIXED_IST', new Date().toISOString());
+  ui.alert('Converted ' + n + ' dates to India time (Trade Log, Holdings, History, Settings B14).');
 }
