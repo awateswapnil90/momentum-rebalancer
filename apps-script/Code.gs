@@ -161,6 +161,7 @@ function isStrategy_(o) {
 function applyOrders_(orders, kiteHoldings, ssOverride) {
   {
     var ss = ssOverride || SpreadsheetApp.openById(props_().getProperty('SHEET_ID'));
+    if (ss.getSpreadsheetTimeZone() !== TZ) ss.setSpreadsheetTimeZone(TZ); // show all dates in IST
     var log = ss.getSheetByName('Trade Log'), hold = ss.getSheetByName('Holdings'),
         set = ss.getSheetByName('Settings'), hist = ss.getSheetByName('History');
 
@@ -333,6 +334,7 @@ function upgradeLivePrices() {
       rk = ss.getSheetByName('Ranked'), rb = ss.getSheetByName('Rebalance');
   if (!set || !calc || !rk || !rb) { ui.alert('This sheet is missing Settings/Calc/Ranked/Rebalance tabs.'); return; }
   var N = 300, H = 100, i, f;
+  if (ss.getSpreadsheetTimeZone() !== TZ) ss.setSpreadsheetTimeZone(TZ);
 
   set.getRange('A15:C15').setValues([['Price for quantities (LIVE/LCP)', 'LIVE',
     'LIVE = latest NSE price from Google Finance (about 15-20 min delayed; last close when the market is shut). LCP = scanner price']]);
